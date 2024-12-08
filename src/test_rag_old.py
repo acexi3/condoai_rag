@@ -28,10 +28,7 @@ def get_test_questions() -> List[str]:
         
         # Owner's Guide
         "What is the Tribunal process and who is involved?",
-        "What are the Owner's maintenance and repair responsibilities mentioned?",
-        
-        # Table-Specific (since we now handle tables better)
-        "What financial information or budget items are discussed in these documents?"
+        "What are the Owner's maintenance and repair responsibilities mentioned?"
     ]
 
 def format_response(response: dict, question: str) -> str:
@@ -44,14 +41,9 @@ def format_response(response: dict, question: str) -> str:
     if response.get('sources'):
         formatted += f"\nSources Used:\n{'-'*40}\n"
         for i, source in enumerate(response['sources'], 1):
-            # Include content type in source attribution
-            content_type = source.metadata.get('type', 'unknown') if hasattr(source, 'metadata') else 'unknown'
-            page_num = source.metadata.get('page', 'unknown') if hasattr(source, 'metadata') else 'unknown'
-            
-            formatted += f"\nSource {i} (Type: {content_type}, Page: {page_num}):\n"
             # Truncate long sources for readability
             truncated_source = source[:300] + "..." if len(source) > 300 else source
-            formatted += f"{truncated_source}\n"
+            formatted += f"\nSource {i}:\n{truncated_source}\n"
             formatted += f"{'-'*40}\n"
     
     return formatted
@@ -81,10 +73,13 @@ def main():
     try:
         # Initialize RAG system with API key
         logger.info("Initializing RAG system with Llama 3...")
-        rag = RAGPrototype(pdf_directory=pdf_dir, llama_parse_api_key=llama_parse_api_key)
+        rag = RAGPrototype(
+            pdf_directory=pdf_dir, 
+            llama_parse_api_key=llama_parse_api_key
+        )
         
         # Load documents
-        logger.info("Loading and processing documents...")
+        logger.info("Loading and processing documents with LlamaParse...")
         rag.load_documents()
         
         # Get test questions
