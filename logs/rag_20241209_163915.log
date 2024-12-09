@@ -1,0 +1,2 @@
+2024-12-09 16:39:24,481 - INFO - HTTP Request: POST http://127.0.0.1:11434/api/generate "HTTP/1.1 200 OK"
+2024-12-09 16:39:53,344 - INFO - Test log message
