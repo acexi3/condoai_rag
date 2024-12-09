@@ -19,22 +19,43 @@ def get_test_questions() -> List[str]:
     """Return a list of test questions focused on current condo documents."""
     return [
         # General Overview
-        "What are the governing documents for condos?",
-        "What requirements should owners be mindful of when it comes to AGMs?",
+        "What are all the governing documents for condos?",
+        "What are the AGM requirements?",
+        "What are reserve funds used for in condos?",
+        "What are the reserve fund requirements?",
+
+        # Financial Information
+        "What specific financial information and budget items are discussed across all the documents? Please cite each document separately.",
+        "Can you please provide a summary of the review of the unaudited financial statements in the meeting?",
+
+        # Governance
+        "What are the mandatory requirements versus optional guidelines for condo governance? Please distinguish between requirements and recommendations.",
         
         # Meeting Specific
-        "Who attended the meeting that is covered in the minutes document?",
-        "What important decisions or actions were proposed in the management report and covered in the meeting?",
-        
+        "Who attended the meeting that is referencedd in the minutes document?",
+        "What decisions were made by the board in the meeting?",
+        "What topics did the manager discuss in the management report?",
+        "Does the agenda match the topics discussed in the management report and minutes?",
+        "What is the date of the next meeting?",
+        "Who were the guests at the meeting?",
+        "Who is the manager of the condo?",
+        "What are the action items from the meeting?",
+        "Was there any new business discussed at the meeting?",
+        "What time did the meeting start and end?",
+
         # Owner's Guide
         "What is the Tribunal process and who is involved?",
-        "What are the Owner's maintenance and repair responsibilities mentioned?",
+        "Which maintenance and repair responsibilities are the owner's and which are the condo's responsibility?",
+        "What are owner's insurance responsibilities and best practices?",
         
         # Table-Specific (since we now handle tables better)
         "What financial information or budget items are discussed in these documents?"
     ]
 
-def format_response(response: dict, question: str) -> str:
+def format_response(
+        response: dict, 
+        question: str
+    ) -> str:
     """Format the response with clear separation and source attribution."""
     formatted = f"\n{'='*80}\n"
     formatted += f"Question: {question}\n"
@@ -45,13 +66,14 @@ def format_response(response: dict, question: str) -> str:
         formatted += f"\nSources Used:\n{'-'*40}\n"
         for i, source in enumerate(response['sources'], 1):
             # Include content type in source attribution
-            content_type = source.metadata.get('type', 'unknown') if hasattr(source, 'metadata') else 'unknown'
-            page_num = source.metadata.get('page', 'unknown') if hasattr(source, 'metadata') else 'unknown'
+            content_type = source.metadata.get('type', 'unknown')
+            page_num = source.metadata.get('page', 'unknown')
             
             formatted += f"\nSource {i} (Type: {content_type}, Page: {page_num}):\n"
-            # Truncate long sources for readability
-            truncated_source = source[:300] + "..." if len(source) > 300 else source
-            formatted += f"{truncated_source}\n"
+            # Use page_content instead of string conversion
+            content = source.page_content
+            truncated_content = content[:300] + "..." if len(content) > 300 else content
+            formatted += f"{truncated_content}\n"
             formatted += f"{'-'*40}\n"
     
     return formatted

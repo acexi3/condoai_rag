@@ -11,6 +11,7 @@ from langchain.chains import RetrievalQA
 from llama_parse import LlamaParse
 import pdfplumber
 from langchain.schema import Document
+from langchain.prompts import PromptTemplate
 
 import os
 from typing import List, Optional, Dict
@@ -89,7 +90,11 @@ class ProgressEmbeddings(OllamaEmbeddings):
         return results
 
 class RAGPrototype:
-    def __init__(self, pdf_directory: str, llama_parse_api_key: str):
+    def __init__(
+            self, 
+            pdf_directory: str, 
+            llama_parse_api_key: str
+        ):
         self.pdf_directory = pdf_directory
         self.pdf_extractor = PDFExtractor()
         
@@ -111,7 +116,10 @@ class RAGPrototype:
             
         self.vector_store = None
         
-    def _process_extracted_content(self, content: Dict) -> List[Document]:
+    def _process_extracted_content(
+            self, 
+            content: Dict
+        ) -> List[Document]:
         """Process extracted content into documents."""
         documents = []
         
@@ -133,7 +141,10 @@ class RAGPrototype:
         
         return documents
         
-    def load_documents(self, persist: bool = True) -> None:
+    def load_documents(
+            self, 
+            persist: bool = True
+        ) -> None:
         documents = []
         
         if not os.path.exists(self.pdf_directory):
@@ -168,8 +179,8 @@ class RAGPrototype:
         # Split documents into chunks
         logger.info("Splitting documents into chunks...")
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1500,
-            chunk_overlap=300,
+            chunk_size=1800,
+            chunk_overlap=200,
             length_function=len
         )
         splits = text_splitter.split_documents(documents)
@@ -194,12 +205,54 @@ class RAGPrototype:
             logger.error(f"Error creating vector store: {str(e)}")
             raise
 
+    def _determine_k(self, question: str) -> int:
+        """
+        Determine number of chunks to retrieve based on question complexity.
+        
+        Args:
+            question: The user's question
+            
+        Returns:
+            int: Recommended number of chunks to retrieve
+        """
+        # Base k value
+        k = 4
+        
+        # Keywords indicating need for more context
+        cross_doc_keywords = [
+            'across', 'all documents', 'compare', 'differences',
+            'multiple', 'various', 'each', 'different'
+        ]
+        
+        financial_keywords = [
+            'budget', 'financial', 'costs', 'expenses',
+            'spending', 'funds', 'money', 'payments'
+        ]
+        
+        timeline_keywords = [
+            'when', 'history', 'timeline', 'schedule',
+            'dates', 'planned', 'future', 'past'
+        ]
+        
+        # Increase k based on question complexity
+        if any(keyword in question.lower() for keyword in cross_doc_keywords):
+            k += 4  # Need more chunks for cross-document analysis
+            
+        if any(keyword in question.lower() for keyword in financial_keywords):
+            k += 2  # Financial info might be spread across documents
+            
+        if any(keyword in question.lower() for keyword in timeline_keywords):
+            k += 2  # Temporal questions might need more context
+            
+        # Cap k at reasonable maximum
+        return min(k, 16)
+
     def query(self, 
               question: str, 
               k: int = 4, 
               include_sources: bool = False) -> dict:
         """
-        Query the RAG system.
+        Query the RAG system with dynamic chunk retrieval.
         
         Args:
             question: The user's question
@@ -214,16 +267,52 @@ class RAGPrototype:
         
         try:
             logger.info(f"Processing query: {question}")
+            
+            # Determine k dynamically based on question complexity
+            k = self._determine_k(question)
+            logger.info(f"Using k={k} chunks based on question complexity")
+            
+            # Enhanced prompt template
+            prompt_template =  """
+            Please analyze the provided documents carefully and answer the question below.
+            
+            Important instructions:
+            1. Clearly distinguish between:
+            - Definitive statements (IS, MUST, SHALL)
+            - Conditional possibilities (MAY, MIGHT, COULD)
+            - Recommendations or suggestions (SHOULD)
+            
+            2. For each point in your answer:
+            - Cite the specific document and section
+            - Quote relevant text when appropriate
+            - Indicate if something is a requirement or a possibility
+            
+            3. If information appears in multiple documents:
+            - Note any differences or contradictions
+            - Cite all relevant sources
+            
+            Question: {question}
+            
+            Context: {context}
+            
+            Please provide a structured answer that clearly separates definitive requirements from possible or conditional statements.
+            """
+
             # Create retrieval chain
             qa_chain = RetrievalQA.from_chain_type(
                 llm=self.llm,
                 chain_type="stuff",  # Combines all chunks into one context
                 retriever=self.vector_store.as_retriever(search_kwargs={"k": k}),
-                return_source_documents=include_sources
+                return_source_documents=include_sources,
+                chain_type_kwargs={
+                    "prompt": PromptTemplate(
+                        template=prompt_template,
+                        input_variables=["context", "question"]
+                    )}
             )
             
             # Get response
-            response = qa_chain({"query": question})
+            response = qa_chain.invoke({"query": question})
             
             return {
                 "answer": response["result"],
