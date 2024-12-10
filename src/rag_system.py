@@ -9,6 +9,7 @@ from typing import List, Dict, Optional
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain_ollama import OllamaLLM, OllamaEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores.utils import filter_complex_metadata
 from langchain_community.vectorstores import Chroma
 from langchain.chains import RetrievalQA
 from llama_parse import LlamaParse
@@ -57,6 +58,18 @@ def setup_logging():
 # Initialize logger
 logger = setup_logging()
 
+def filter_complex_metadata(metadata: dict) -> dict:
+    """Filter out complex metadata values, keeping only simple types."""
+    filtered = {}
+    for key, value in metadata.items():
+        # Keep only simple types (str, int, float, bool)
+        if isinstance(value, (str, int, float, bool)):
+            filtered[key] = value
+        elif isinstance(value, (list, dict)):
+            # Convert complex types to string representation
+            filtered[key] = str(value)
+    return filtered
+
 class DocumentStructure:
     """Handles document structure recognition and content extraction."""
     
@@ -64,7 +77,7 @@ class DocumentStructure:
         # Default patterns
         self.default_patterns = {
             'action_items': r'(?:^|\n)ACTION:\s*(.*?)(?=\n\n|\Z)',
-            'new_business': r'(?:^|\n)NEW BUSINESS\s*(.*?)(?=\n\n|\Z)',  # Removed number dependency
+            'new_business': r'(?:^|\n)NEW BUSINESS\s*(.*?)(?=\n\n|\Z)',
             'call_to_order': r'(?:^|\n)CALL TO ORDER\s*(.*?)(?=\n\n|\Z)',
             'correspondence': r'(?:^|\n)CORRESPONDENCE\s*(.*?)(?=\n\n|\Z)',
             'meeting_times': {
@@ -103,17 +116,32 @@ class DocumentStructure:
         content = {}
         
         for key, pattern in self.patterns.items():
-            if isinstance(pattern, str):
-                matches = re.finditer(pattern, text, re.IGNORECASE | re.DOTALL)
-                content[key] = [m.group(1).strip() if '(' in pattern else m.group().strip() 
-                              for m in matches]
-            elif isinstance(pattern, dict):  # For meeting_times
-                times = {}
-                for time_type, time_pattern in pattern.items():
-                    match = re.search(time_pattern, text, re.IGNORECASE)
-                    if match:
-                        times[time_type] = match.group(1)
-                content[key] = times
+            try:
+                if isinstance(pattern, str):
+                    matches = list(re.finditer(pattern, text, re.IGNORECASE | re.DOTALL))
+                    content[key] = []
+                    for m in matches:
+                        try:
+                            # Try to get group 1, fall back to group 0 if it doesn't exist
+                            content[key].append(
+                                m.group(1).strip() if m.groups() else m.group(0).strip()
+                            )
+                        except IndexError:
+                            # If no groups exist, use the entire match
+                            content[key].append(m.group(0).strip())
+                elif isinstance(pattern, dict):  # For meeting_times
+                    times = {}
+                    for time_type, time_pattern in pattern.items():
+                        match = re.search(time_pattern, text, re.IGNORECASE)
+                        if match:
+                            try:
+                                times[time_type] = match.group(1)
+                            except IndexError:
+                                times[time_type] = match.group(0)
+                    content[key] = times
+            except Exception as e:
+                logger.warning(f"Error extracting pattern '{key}': {str(e)}")
+                content[key] = []
         
         return content
 
@@ -190,24 +218,50 @@ class PDFExtractor:
         """Extract using pdfplumber with enhanced metadata."""
         documents = []
         
-        with pdfplumber.open(file_path) as pdf:
-            for page_num, page in enumerate(pdf.pages, 1):
-                text = page.extract_text()
-                if text.strip():
-                    # Add structure recognition
-                    structured_content = self.doc_structure.extract_content(text)
-                    doc = Document(
-                        page_content=text,
-                        metadata={
-                            'source': file_path,
-                            'page': page_num,
-                            'structured_content': structured_content,
-                            'extraction_method': 'pdfplumber'
-                        }
-                    )
-                    documents.append(doc)
-        
-        return documents
+        try:
+            with pdfplumber.open(file_path) as pdf:
+                for page_num, page in enumerate(pdf.pages, 1):
+                    text = page.extract_text()
+                    if text.strip():
+                        try:
+                            # Add structure recognition with error handling
+                            structured_content = self.doc_structure.extract_content(text)
+                            doc = Document(
+                                page_content=text,
+                                metadata={
+                                    'source': file_path,
+                                    'page': page_num,
+                                    'structured_content': structured_content,
+                                    'extraction_method': 'pdfplumber'
+                                }
+                            )
+                            documents.append(doc)
+                        except Exception as e:
+                            logger.warning(f"Error extracting structure from page {page_num} of {file_path}: {str(e)}")
+                            # Still create document even if structure extraction fails
+                            doc = Document(
+                                page_content=text,
+                                metadata={
+                                    'source': file_path,
+                                    'page': page_num,
+                                    'extraction_method': 'pdfplumber'
+                                }
+                            )
+                            documents.append(doc)
+            
+            return documents
+            
+        except Exception as e:
+            logger.error(f"Error processing PDF {file_path}: {str(e)}")
+            # Create a basic document with the error information
+            return [Document(
+                page_content=f"Error processing document: {str(e)}",
+                metadata={
+                    'source': file_path,
+                    'error': str(e),
+                    'extraction_method': 'pdfplumber_error'
+                }
+            )]
     
 class ProgressEmbeddings(OllamaEmbeddings):
     """Adds progress tracking to embedding generation."""
@@ -216,15 +270,22 @@ class ProgressEmbeddings(OllamaEmbeddings):
         """Embed documents with progress bar."""
         logger.info(f"Creating embeddings for {len(texts)} text chunks...")
         
+        results = []        
         with tqdm(total=len(texts), desc="Creating embeddings") as pbar:
-            results = []
             for text in texts:
-                results.append(self.embed_query(text))
+                # Call the parent class's embed_query method directly
+                embedding = super().embed_query(text)
+                results.append(embedding)
                 pbar.update(1)
                 time.sleep(0.1)  # Rate limiting
         
         return results
     
+    def embed_query(self, text: str) -> List[float]:
+        """Embed query text."""
+        # Call parent's embed_query directly
+        return super().embed_query(text)
+
 class RAGPrototype:
     """Enhanced RAG system with structure awareness."""
     
@@ -255,7 +316,7 @@ class RAGPrototype:
             model="llama3",
             callbacks=[StreamingStdOutCallbackHandler()]
         )
-        self.embeddings = ProgressEmbeddings(model="llama3")
+        self.embeddings = OllamaEmbeddings(model="llama3")
     
     def load_documents(self):
         """Load and process documents with enhanced structure recognition."""
@@ -285,19 +346,68 @@ class RAGPrototype:
         
         self._create_vectorstore()
     
+    @staticmethod
+    def _validate_metadata_type(value) -> bool:
+        """Validate if a metadata value is of an acceptable type."""
+        return isinstance(value, (str, int, float, bool))
+
     def _create_vectorstore(self):
         """Create vector store from processed documents."""
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=200
         )
-        
-        split_docs = text_splitter.split_documents(self.documents)
-        self.vectorstore = Chroma.from_documents(
-            documents=split_docs,
-            embedding=self.embeddings
-        )
     
+        # Split documents
+        split_docs = text_splitter.split_documents(self.documents)
+    
+        # Filter complex metadata
+        for i, doc in enumerate(split_docs):
+            logger.debug(f"Processing document {i + 1}/{len(split_docs)}")
+            logger.debug(f"Original metadata: {doc.metadata}")
+
+            # Convert structured content to string representation
+            if 'structured_content' in doc.metadata:
+                doc.metadata['structured_content_summary'] = str(doc.metadata['structured_content'])
+                del doc.metadata['structured_content']
+    
+            # First pass: filter complex metadata
+            doc.metadata = filter_complex_metadata(doc.metadata)
+    
+            # Second pass: validate all metadata values
+            invalid_fields = {
+                key: type(value).__name__
+                for key, value in doc.metadata.items()
+                if not self._validate_metadata_type(value)
+            }
+    
+            if invalid_fields:
+                logger.warning(f"Found invalid metadata types: {invalid_fields}")
+                # Convert any remaining invalid types to strings
+                for key, _ in invalid_fields.items():
+                    doc.metadata[key] = str(doc.metadata[key])
+    
+            # Final validation
+            assert all(self._validate_metadata_type(value) for value in doc.metadata.values()), \
+                f"Invalid metadata types remain: {doc.metadata}"
+    
+            logger.debug(f"Filtered metadata: {doc.metadata}")
+    
+        logger.info(f"Processed {len(split_docs)} documents")
+    
+        # Create vectorstore with filtered metadata
+        try:
+            self.vectorstore = Chroma.from_documents(
+                documents=split_docs,
+                embedding=self.embeddings
+            )
+        except Exception as e:
+            logger.error(f"Failed to create vectorstore: {str(e)}")
+            # Log the problematic metadata
+            for i, doc in enumerate(split_docs):
+                logger.error(f"Document {i} metadata: {doc.metadata}")
+            raise
+
     def query(self, question: str) -> dict:
         """Process query with structure awareness."""
         try:
@@ -315,7 +425,9 @@ class RAGPrototype:
             # Generate response
             qa_chain = self._create_qa_chain()
             context = self._combine_context(docs, structured_answer)
-            response = qa_chain({"question": question, "context": context})
+            
+            # Use invoke instead of __call__ and use 'query' instead of 'question'
+            response = qa_chain.invoke({"query": question, "context": context})
             
             return {
                 "answer": response["result"],

@@ -3,6 +3,9 @@ import logging
 from rag_system import RAGPrototype
 
 def test_rag():
+    # Set logging level to DEBUG temporarily
+    logging.getLogger().setLevel(logging.DEBUG)
+    
     # Optional: Define custom patterns for testing
     custom_patterns = {
         'special_items': r'(?:^|\n)(?:SPECIAL|ADDITIONAL)\s*ITEMS:\s*(.*?)(?=\n\n|\Z)',

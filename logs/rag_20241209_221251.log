@@ -1,0 +1,10 @@
+2024-12-09 22:12:52,561 - INFO - Loading documents...
+2024-12-09 22:12:54,000 - INFO - Processed Owners-guide_FINAL_July-26-2023.pdf - Types: []
+2024-12-09 22:12:54,496 - INFO - Processed YRSCC 1543 - October 1, 2024 BOD - Minutes.pdf - Types: ['minutes']
+2024-12-09 22:12:54,737 - INFO - Processed YRSCC 1543 Management Report 2024.11.05.pdf - Types: ['governance', 'minutes']
+2024-12-09 22:12:54,829 - INFO - Processed YRSCC 1543_Agenda_2024.11.05.pdf - Types: ['financial', 'minutes']
+2024-12-09 22:12:56,867 - INFO - Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2024-12-09 22:29:31,253 - INFO - HTTP Request: POST http://127.0.0.1:11434/api/embed "HTTP/1.1 200 OK"
+2024-12-09 22:29:31,609 - ERROR - Error during test: Expected metadata value to be a str, int, float or bool, got [] which is a list in upsert.
+
+Try filtering complex metadata from the document using langchain_community.vectorstores.utils.filter_complex_metadata.

@@ -1,0 +1,11 @@
+2024-12-09 18:35:50,488 - INFO - Loading documents...
+2024-12-09 18:35:51,782 - INFO - Processed Owners-guide_FINAL_July-26-2023.pdf - Types: []
+2024-12-09 18:35:51,879 - ERROR - Error extracting PDF C:\Users\Dwbak\WEBDEV\condoai_rag\src\..\pdfs\YRSCC 1543 - October 1, 2024 BOD - Minutes.pdf: no such group
+2024-12-09 18:35:51,880 - ERROR - Error processing YRSCC 1543 - October 1, 2024 BOD - Minutes.pdf: no such group
+2024-12-09 18:35:51,994 - INFO - Processed YRSCC 1543 Management Report 2024.11.05.pdf - Types: ['minutes', 'governance']
+2024-12-09 18:35:52,055 - INFO - Processed YRSCC 1543_Agenda_2024.11.05.pdf - Types: ['minutes', 'financial']
+2024-12-09 18:35:53,218 - INFO - Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2024-12-09 22:01:22,064 - INFO - HTTP Request: POST http://127.0.0.1:11434/api/embed "HTTP/1.1 200 OK"
+2024-12-09 22:01:22,255 - ERROR - Error during test: Expected metadata value to be a str, int, float or bool, got [] which is a list in upsert.
+
+Try filtering complex metadata from the document using langchain_community.vectorstores.utils.filter_complex_metadata.
