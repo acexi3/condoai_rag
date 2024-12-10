@@ -35,6 +35,10 @@ chroma_db/
 *.swp
 *.swo
 
+# Outputs
+logs/
+results/
+
 # Operating System
 .DS_Store
 Thumbs.db

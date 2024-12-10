@@ -73,30 +73,59 @@ def filter_complex_metadata(metadata: dict) -> dict:
 class DocumentStructure:
     """Handles document structure recognition and content extraction."""
     
-    def __init__(self, custom_patterns: Optional[Dict] = None):
-        # Default patterns
-        self.default_patterns = {
-            'action_items': r'(?:^|\n)ACTION:\s*(.*?)(?=\n\n|\Z)',
-            'new_business': r'(?:^|\n)NEW BUSINESS\s*(.*?)(?=\n\n|\Z)',
-            'call_to_order': r'(?:^|\n)CALL TO ORDER\s*(.*?)(?=\n\n|\Z)',
-            'correspondence': r'(?:^|\n)CORRESPONDENCE\s*(.*?)(?=\n\n|\Z)',
-            'meeting_times': {
-                'start': r'(?:start|begin|order).*?(\d{1,2}:\d{2}\s*(?:am|pm))',
-                'end': r'(?:end|adjourn|close).*?(\d{1,2}:\d{2}\s*(?:am|pm))'
-            },
-            'motions': r'(?:^|\n)(?:MOTION|On a MOTION).*?(?:carried|defeated)',
-            'attendees': r'(?:^|\n)(?:Present|Attendance):\s*(.*?)(?=\n\n|\Z)',
-            'management_report': r'(?:^|\n)MANAGEMENT REPORT\s*(.*?)(?=\n\n|\Z)',
-            'financial_report': r'(?:^|\n)FINANCIAL REPORT\s*(.*?)(?=\n\n|\Z)',
-            'variance_report': r'(?:^|\n)VARIANCE REPORT\s*(.*?)(?=\n\n|\Z)',
-            'review_of_unaudited_financial_statements': r'(?:^|\n)REVIEW OF UNAUDITED FINANCIAL STATEMENTS\s*(.*?)(?=\n\n|\Z)',
-            'review_and_approval_of_meeting_minutes': r'(?:^|\n)REVIEW AND APPROVAL OF MEETING MINUTES\s*(.*?)(?=\n\n|\Z)',
-        }
+    # Default patterns for standard meeting minutes sections
+    DEFAULT_PATTERNS = {
+        'action_items': r'(?:^|\n)ACTION:\s*(.*?)(?=\n\n|\Z)',
+        'new_business': r'(?:^|\n)NEW BUSINESS\s*(.*?)(?=\n\n|\Z)',
+        'call_to_order': r'(?:^|\n)CALL TO ORDER\s*(.*?)(?=\n\n|\Z)',
+        'correspondence': r'(?:^|\n)CORRESPONDENCE\s*(.*?)(?=\n\n|\Z)',
+        'meeting_times': {
+            'start': r'(?:start|begin|order).*?(\d{1,2}:\d{2}\s*(?:am|pm))',
+            'end': r'(?:end|adjourn|close).*?(\d{1,2}:\d{2}\s*(?:am|pm))'
+        },
+        'motions': r'(?:^|\n)(?:MOTION|On a MOTION).*?(?:carried|defeated)',
+        'attendees': r'(?:^|\n)(?:Present|Attendance):\s*(.*?)(?=\n\n|\Z)',
+        'regrets': r'(?:^|\n)(?:Absent|Regret):\s*(.*?)(?=\n\n|\Z)',
+        'management_report': r'(?:^|\n)MANAGEMENT REPORT\s*(.*?)(?=\n\n|\Z)',
+        'financial_report': r'(?:^|\n)FINANCIAL REPORT\s*(.*?)(?=\n\n|\Z)',
+        'statements': r'(?:^|\n)STATEMENTS\s*(.*?)(?=\n\n|\Z)',
+        'variance_report': r'(?:^|\n)VARIANCE REPORT\s*(.*?)(?=\n\n|\Z)',
+        'arrears_report': r'(?:^|\n)ARREARS REPORT\s*(.*?)(?=\n\n|\Z)',
+        'review_of_unaudited_financial_statements': r'(?:^|\n)REVIEW OF UNAUDITED FINANCIAL STATEMENTS\s*(.*?)(?=\n\n|\Z)',
+        'review_and_approval_of_meeting_minutes': r'(?:^|\n)REVIEW AND APPROVAL OF MEETING MINUTES\s*(.*?)(?=\n\n|\Z)',
+        'items_for_discussion': r'(?:^|\n)ITEMS FOR DISCUSSION\s*(.*?)(?=\n\n|\Z)',
+        'items_in_progress': r'(?:^|\n)ITEMS IN PROGRESS\s*(.*?)(?=\n\n|\Z)',
+        'items_completed': r'(?:^|\n)ITEMS COMPLETED\s*(.*?)(?=\n\n|\Z)',
+        'items_deferred': r'(?:^|\n)ITEMS DEFERRED\s*(.*?)(?=\n\n|\Z)',
+        'date_of_next_meeting': r'(?:^|\n)DATE OF NEXT MEETING\s*(.*?)(?=\n\n|\Z)',
+        'close_of_meeting': r'(?:^|\n)CLOSE OF MEETING\s*(.*?)(?=\n\n|\Z)',
+    }
+
+    # Additional custom patterns for specific document sections
+    CUSTOM_PATTERNS = {
+        'special_items': r'(?:^|\n)(?:SPECIAL|ADDITIONAL)\s*ITEMS:\s*(.*?)(?=\n\n|\Z)',
+        'building_maintenance': r'(?:^|\n)BUILDING\s*MAINTENANCE:\s*(.*?)(?=\n\n|\Z)',
+        'resident_complaints': r'(?:^|\n)RESIDENT\s*COMPLAINTS:\s*(.*?)(?=\n\n|\Z)',
+        'upcoming_projects': r'(?:^|\n)UPCOMING\s*PROJECTS:\s*(.*?)(?=\n\n|\Z)',
+    }
+    
+    def __init__(self, additional_patterns: Optional[Dict] = None):
+        """
+        Initialize document structure with patterns.
         
-        # Update with any custom patterns
-        self.patterns = self.default_patterns.copy()
-        if custom_patterns:
-            self.patterns.update(custom_patterns)
+        Args:
+            additional_patterns: Optional dictionary of additional patterns to include
+        """
+        # Combine default and custom patterns
+        self.patterns = {**self.DEFAULT_PATTERNS, **self.CUSTOM_PATTERNS}
+        
+        # Add any additional patterns provided during initialization
+        if additional_patterns:
+            self.patterns.update(additional_patterns)
+            
+        logger.info("Active document patterns:")
+        for pattern_name in self.patterns.keys():
+            logger.info(f"  - {pattern_name}")
     
     def add_pattern(self, name: str, pattern: str):
         """Add a new pattern or update existing one."""
@@ -289,62 +318,141 @@ class ProgressEmbeddings(OllamaEmbeddings):
 class RAGPrototype:
     """Enhanced RAG system with structure awareness."""
     
-    def __init__(self, 
-                 pdf_directory: str, 
-                 llama_parse_api_key: Optional[str] = None,
-                 custom_patterns: Optional[Dict] = None):
-        """
-        Initialize RAG system with optional custom patterns.
-        
-        Args:
-            pdf_directory: Directory containing PDF files
-            llama_parse_api_key: Optional API key for LlamaParse
-            custom_patterns: Optional dictionary of custom regex patterns
-        """
-        self.pdf_directory = pdf_directory
-        self.pdf_extractor = PDFExtractor(
-            llama_parse_api_key=llama_parse_api_key,
-            custom_patterns=custom_patterns
-        )
-        self.doc_classifier = DocumentClassifier()
-        self.documents = []
-        self.vectorstore = None
-        self.structured_content = {}  # Store structured content by document
-        
-        # Initialize LLM and embeddings with Llama3
-        self.llm = OllamaLLM(
-            model="llama3",
-            callbacks=[StreamingStdOutCallbackHandler()]
-        )
-        self.embeddings = OllamaEmbeddings(model="llama3")
+    def __init__(self, pdf_directory: str, llama_parse_api_key: Optional[str] = None, custom_patterns: Optional[Dict] = None):
+        """Initialize RAG system."""
+        try:
+            # Store the API key and directory
+            self.llama_parse_api_key = llama_parse_api_key
+            self.pdf_directory = pdf_directory
+            
+            # Initialize embedding model
+            self.embeddings = OllamaEmbeddings(
+                model="llama3",
+                base_url="http://localhost:11434"
+            )
+            
+            # Test embedding functionality
+            test_embedding = self.embeddings.embed_query("test")
+            logger.info(f"Embedding model initialized successfully. Embedding dimension: {len(test_embedding)}")
+            
+            # Initialize LLM
+            self.llm = OllamaLLM(
+                model="llama3",
+                temperature=0.1,
+                callbacks=[StreamingStdOutCallbackHandler()]
+            )
+            
+            # Initialize document structure with all patterns
+            all_patterns = {}
+            
+            # Start with default patterns from DocumentStructure
+            all_patterns.update(DocumentStructure.DEFAULT_PATTERNS)
+            
+            # Add custom patterns defined in DocumentStructure
+            all_patterns.update(DocumentStructure.CUSTOM_PATTERNS)
+            
+            # Add any additional patterns passed during initialization
+            if custom_patterns:
+                all_patterns.update(custom_patterns)
+            
+            # Log all active patterns
+            logger.info("Initializing with patterns:")
+            for pattern_name in all_patterns.keys():
+                logger.info(f"  - {pattern_name}")
+            
+            # Initialize document structure and classifier with combined patterns
+            self.doc_structure = DocumentStructure(all_patterns)
+            self.doc_classifier = DocumentClassifier()
+            
+            # Initialize empty documents list
+            self.documents = []
+            self.vectorstore = None
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize RAG system: {str(e)}")
+            raise
     
-    def load_documents(self):
-        """Load and process documents with enhanced structure recognition."""
-        logger.info("Loading documents...")
-        
-        for pdf_file in os.listdir(self.pdf_directory):
-            if pdf_file.endswith('.pdf'):
-                file_path = os.path.join(self.pdf_directory, pdf_file)
+    def load_documents(self) -> None:
+        """Load and process documents from the PDF directory."""
+        try:
+            logger.info("Loading documents...")
+            self.documents = []
+            
+            # Initialize LlamaParse if API key is provided
+            llama_parser = None
+            if self.llama_parse_api_key:
                 try:
-                    # Extract documents with structure
-                    docs = self.pdf_extractor.extract_from_pdf(file_path)
-                    
-                    # Store structured content
-                    for doc in docs:
-                        # Classify document
-                        doc_types = self.doc_classifier.classify_document(doc.page_content)
-                        doc.metadata['types'] = doc_types
-                        
-                        # Store structured content separately for quick access
-                        if 'structured_content' in doc.metadata:
-                            self.structured_content[file_path] = doc.metadata['structured_content']
-                    
-                    self.documents.extend(docs)
-                    logger.info(f"Processed {pdf_file} - Types: {doc_types}")
+                    llama_parser = LlamaParse(
+                        api_key=self.llama_parse_api_key,
+                        result_type="markdown"  # or "text" depending on your preference
+                    )
+                    logger.info("LlamaParse initialized successfully")
                 except Exception as e:
-                    logger.error(f"Error processing {pdf_file}: {str(e)}")
-        
-        self._create_vectorstore()
+                    logger.warning(f"Failed to initialize LlamaParse: {str(e)}. Falling back to PDFPlumber.")
+                    llama_parser = None
+
+            for filename in os.listdir(self.pdf_directory):
+                if filename.endswith('.pdf'):
+                    file_path = os.path.join(self.pdf_directory, filename)
+                    
+                    try:
+                        if llama_parser:
+                            # Try LlamaParse first
+                            try:
+                                docs = llama_parser.load_data(file_path)
+                                logger.info(f"Successfully processed {filename} with LlamaParse")
+                            except Exception as e:
+                                logger.warning(f"LlamaParse failed for {filename}: {str(e)}. Falling back to PDFPlumber.")
+                                docs = self._process_with_pdfplumber(file_path)
+                        else:
+                            # Use PDFPlumber if no LlamaParse
+                            docs = self._process_with_pdfplumber(file_path)
+
+                        # Validate documents
+                        if not docs:
+                            logger.warning(f"No content extracted from {filename}")
+                            continue
+
+                        # Add document type metadata
+                        doc_types = self.doc_classifier.classify_document(docs[0].page_content)
+                        for doc in docs:
+                            doc.metadata['types'] = doc_types
+                            doc.metadata['extraction_method'] = 'llama_parse' if llama_parser else 'pdfplumber'
+
+                        self.documents.extend(docs)
+                        logger.info(f"Processed {filename} - Types: {doc_types}")
+
+                    except Exception as e:
+                        logger.error(f"Error processing {filename}: {str(e)}")
+                        continue
+
+            if not self.documents:
+                raise ValueError("No documents were successfully processed")
+
+            # Create vector store
+            self._create_vectorstore()
+
+        except Exception as e:
+            logger.error(f"Error loading documents: {str(e)}")
+            raise
+
+    def _process_with_pdfplumber(self, file_path: str) -> List[Document]:
+        """Process PDF with PDFPlumber as fallback."""
+        docs = []
+        with pdfplumber.open(file_path) as pdf:
+            for page_num, page in enumerate(pdf.pages):
+                text = page.extract_text()
+                if text.strip():  # Only add non-empty pages
+                    docs.append(Document(
+                        page_content=text,
+                        metadata={
+                            'source': file_path,
+                            'page': page_num + 1,
+                            'structured_content': self.doc_structure.extract_structure(text),
+                            'extraction_method': 'pdfplumber'
+                        }
+                    ))
+        return docs
     
     @staticmethod
     def _validate_metadata_type(value) -> bool:
@@ -354,8 +462,8 @@ class RAGPrototype:
     def _create_vectorstore(self):
         """Create vector store from processed documents."""
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200
+            chunk_size=1026,
+            chunk_overlap=256
         )
     
         # Split documents
@@ -465,15 +573,16 @@ class RAGPrototype:
         
         # Define question-to-pattern mapping
         pattern_mapping = {
-            'time': ['meeting_times'],
-            'when': ['meeting_times'],
+            'time': ['meeting_times, call_to_order'],
+            'when': ['meeting_times, close_of_meeting'],
             'action': ['action_items'],
             'motion': ['motions'],
             'attend': ['attendees'],
             'present': ['attendees'],
-            'business': ['new_business', 'old_business'],
+            'regrets': ['regrets'],
+            'business': ['new_business'],
             'management': ['management_report'],
-            'financial': ['financial_report']
+            'financial': ['financial_report', 'statements', 'arrears_report', 'review_of_unaudited_financial_statements', 'review_and_approval_of_meeting_minutes', 'variance_report']
         }
         
         # Find relevant patterns for the question
