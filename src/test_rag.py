@@ -3,7 +3,9 @@ import logging
 import json
 from datetime import datetime
 from dotenv import load_dotenv
-from rag_system import RAGPrototype
+
+# Load environment variables before any other imports
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -15,6 +17,15 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Verify API key is loaded and log working directory
+logger.info(f"Current working directory: {os.getcwd()}")
+api_key = os.getenv('LLAMA_PARSE_API_KEY')
+if not api_key:
+    raise ValueError("LLAMA_PARSE_API_KEY not found in environment variables")
+logger.info(f"LlamaParse API key loaded successfully: {api_key[:8]}...")
+
+from rag_system import RAGPrototype
 
 def test_patterns():
     """Test specific patterns against document content."""
@@ -43,27 +54,41 @@ def test_patterns():
         # Test each pattern type
         pattern_tests = {
             'default_patterns': [
-                "What were the action items?",
                 "When did the meeting start and end?",
+                "What were the action items from this meeting?",
                 "List all motions from the meeting.",
                 "Who attended the meeting?",
                 "Who is the manager of the corporation?",
                 "What is the name or number of the corporation?",
             ],
             'custom_patterns': [
-                "What special items were discussed?",
-                "What building maintenance was mentioned?",
+                "When did the meeting start and end?",
+                "What were the action items from this meeting?",
+                "List all motions from the meeting.",
+                "Who attended the meeting?",
+                "Who is the manager of the corporation?",
+                "What is the name or number of the corporation?",
             ],
             'test_patterns': [
-                "What was in the test section?",
-                "What dates were mentioned?",
+                "When did the meeting start and end?",
+                "What were the action items from this meeting?",
+                "List all motions from the meeting.",
+                "Who attended the meeting?",
+                "Who is the manager of the corporation?",
+                "What is the name or number of the corporation?",
             ]
-        }
+        }   
 
         # Store results
-        results = {
+        detailed_results = {
             'timestamp': datetime.now().isoformat(),
             'pattern_results': {}
+        }
+        
+        # Store clean results (just Q&A)
+        clean_results = {
+            'timestamp': datetime.now().isoformat(),
+            'questions_and_answers': []
         }
 
         # Test each pattern category
@@ -76,13 +101,11 @@ def test_patterns():
                 try:
                     result = rag.query(question)
                     
-                    # Check if structured content was found
-                    structured_found = bool(result.get('structured_content'))
-                    
+                    # Store detailed results
                     category_results.append({
                         'question': question,
                         'answer': result['answer'],
-                        'structured_content_found': structured_found,
+                        'structured_content_found': bool(result.get('structured_content')),
                         'sources': [
                             {
                                 'content': doc.page_content[:200] + '...',  # First 200 chars
@@ -91,25 +114,43 @@ def test_patterns():
                         ]
                     })
                     
-                    logger.info(f"Structured content found: {structured_found}")
+                    # Store clean results
+                    clean_results['questions_and_answers'].append({
+                        'category': category,
+                        'question': question,
+                        'answer': result['answer']
+                    })
+                    
+                    logger.info(f"Structured content found: {bool(result.get('structured_content'))}")
                     
                 except Exception as e:
                     logger.error(f"Error testing pattern: {str(e)}")
-                    category_results.append({
+                    error_result = {
+                        'question': question,
+                        'error': str(e)
+                    }
+                    category_results.append(error_result)
+                    clean_results['questions_and_answers'].append({
+                        'category': category,
                         'question': question,
                         'error': str(e)
                     })
             
-            results['pattern_results'][category] = category_results
+            detailed_results['pattern_results'][category] = category_results
 
-        # Save results
+        # Save detailed results
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        results_file = os.path.join(results_dir, f"pattern_test_results_{timestamp}.json")
+        detailed_results_file = os.path.join(results_dir, f"pattern_test_detailed_{timestamp}.json")
+        clean_results_file = os.path.join(results_dir, f"pattern_test_qa_{timestamp}.json")
         
-        with open(results_file, 'w', encoding='utf-8') as f:
-            json.dump(results, f, indent=2, ensure_ascii=False)
+        with open(detailed_results_file, 'w', encoding='utf-8') as f:
+            json.dump(detailed_results, f, indent=2, ensure_ascii=False)
             
-        logger.info(f"\nResults saved to: {results_file}")
+        with open(clean_results_file, 'w', encoding='utf-8') as f:
+            json.dump(clean_results, f, indent=2, ensure_ascii=False)
+            
+        logger.info(f"\nDetailed results saved to: {detailed_results_file}")
+        logger.info(f"Clean Q&A results saved to: {clean_results_file}")
 
     except Exception as e:
         logger.error(f"Error during pattern test: {str(e)}")

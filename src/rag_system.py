@@ -225,7 +225,9 @@ class PDFExtractor:
         """Extract text and metadata from PDF."""
         try:
             if self.llama_parser:
+                logger.info(f"Using LlamaParse for {file_path}")
                 return self._extract_with_llama_parse(file_path)
+            logger.info(f"No LlamaParse available, using pdfplumber for {file_path}")
             return self._extract_with_pdfplumber(file_path)
         except Exception as e:
             logger.error(f"Error extracting PDF {file_path}: {str(e)}")
@@ -233,15 +235,39 @@ class PDFExtractor:
     
     def _extract_with_llama_parse(self, file_path: str) -> List[Document]:
         """Extract using LlamaParse with enhanced metadata."""
-        documents = self.llama_parser.load_data(file_path)
-        
-        # Add structure recognition
-        for doc in documents:
-            structured_content = self.doc_structure.extract_content(doc.page_content)
-            doc.metadata['structured_content'] = structured_content
-            doc.metadata['extraction_method'] = 'llama_parse'
-        
-        return documents
+        try:
+            # Get raw results from LlamaParse
+            raw_results = self.llama_parser.load_data(file_path)
+            
+            # Convert to Langchain Documents with proper attributes
+            documents = []
+            for result in raw_results:
+                # LlamaParse returns dict-like objects, we need to convert them to Documents
+                content = result.get('content', '') if isinstance(result, dict) else str(result)
+                metadata = result.get('metadata', {}) if isinstance(result, dict) else {}
+                
+                # Create Document with required page_content
+                doc = Document(
+                    page_content=content,
+                    metadata={
+                        'source': file_path,
+                        **metadata
+                    }
+                )
+                
+                # Add structure recognition
+                structured_content = self.doc_structure.extract_content(content)
+                doc.metadata['structured_content'] = structured_content
+                doc.metadata['extraction_method'] = 'llama_parse'
+                
+                documents.append(doc)
+            
+            return documents
+            
+        except Exception as e:
+            logger.error(f"Error in LlamaParse extraction for {file_path}: {str(e)}")
+            # Fall back to pdfplumber if LlamaParse fails
+            return self._extract_with_pdfplumber(file_path)
     
     def _extract_with_pdfplumber(self, file_path: str) -> List[Document]:
         """Extract using pdfplumber with enhanced metadata."""
@@ -364,9 +390,18 @@ class RAGPrototype:
             self.doc_structure = DocumentStructure(all_patterns)
             self.doc_classifier = DocumentClassifier()
             
+            # Initialize PDF extractor
+            self.pdf_extractor = PDFExtractor(
+                llama_parse_api_key=llama_parse_api_key,
+                custom_patterns=all_patterns
+            )
+            
             # Initialize empty documents list
             self.documents = []
             self.vectorstore = None
+            
+            # Initialize structured_content dictionary
+            self.structured_content = {}
             
         except Exception as e:
             logger.error(f"Failed to initialize RAG system: {str(e)}")
@@ -377,50 +412,35 @@ class RAGPrototype:
         try:
             logger.info("Loading documents...")
             self.documents = []
+            self.structured_content = {}  # Reset structured content
             
-            # Initialize LlamaParse if API key is provided
-            llama_parser = None
-            if self.llama_parse_api_key:
-                try:
-                    llama_parser = LlamaParse(
-                        api_key=self.llama_parse_api_key,
-                        result_type="markdown"  # or "text" depending on your preference
-                    )
-                    logger.info("LlamaParse initialized successfully")
-                except Exception as e:
-                    logger.warning(f"Failed to initialize LlamaParse: {str(e)}. Falling back to PDFPlumber.")
-                    llama_parser = None
-
+            processed_count = 0
             for filename in os.listdir(self.pdf_directory):
                 if filename.endswith('.pdf'):
                     file_path = os.path.join(self.pdf_directory, filename)
                     
                     try:
-                        if llama_parser:
-                            # Try LlamaParse first
-                            try:
-                                docs = llama_parser.load_data(file_path)
-                                logger.info(f"Successfully processed {filename} with LlamaParse")
-                            except Exception as e:
-                                logger.warning(f"LlamaParse failed for {filename}: {str(e)}. Falling back to PDFPlumber.")
-                                docs = self._process_with_pdfplumber(file_path)
-                        else:
-                            # Use PDFPlumber if no LlamaParse
-                            docs = self._process_with_pdfplumber(file_path)
-
+                        logger.info(f"Processing {filename}...")
+                        docs = self.pdf_extractor.extract_from_pdf(file_path)
+                        
                         # Validate documents
-                        if not docs:
-                            logger.warning(f"No content extracted from {filename}")
-                            continue
-
-                        # Add document type metadata
-                        doc_types = self.doc_classifier.classify_document(docs[0].page_content)
                         for doc in docs:
+                            if not hasattr(doc, 'page_content'):
+                                logger.error(f"Invalid document from {filename}: missing page_content")
+                                continue
+                            
+                            if not doc.page_content.strip():
+                                logger.warning(f"Empty content in document from {filename}")
+                                continue
+                            
+                            # Add document type metadata
+                            doc_types = self.doc_classifier.classify_document(doc.page_content)
                             doc.metadata['types'] = doc_types
-                            doc.metadata['extraction_method'] = 'llama_parse' if llama_parser else 'pdfplumber'
-
-                        self.documents.extend(docs)
-                        logger.info(f"Processed {filename} - Types: {doc_types}")
+                            
+                            self.documents.append(doc)
+                            processed_count += 1
+                            
+                        logger.info(f"Successfully processed {filename} - {len(docs)} documents extracted")
 
                     except Exception as e:
                         logger.error(f"Error processing {filename}: {str(e)}")
@@ -428,6 +448,8 @@ class RAGPrototype:
 
             if not self.documents:
                 raise ValueError("No documents were successfully processed")
+                
+            logger.info(f"Successfully processed {processed_count} documents from {len(os.listdir(self.pdf_directory))} files")
 
             # Create vector store
             self._create_vectorstore()
@@ -448,7 +470,7 @@ class RAGPrototype:
                         metadata={
                             'source': file_path,
                             'page': page_num + 1,
-                            'structured_content': self.doc_structure.extract_structure(text),
+                            'structured_content': self.doc_structure.extract_content(text),  # Use extract_content
                             'extraction_method': 'pdfplumber'
                         }
                     ))
