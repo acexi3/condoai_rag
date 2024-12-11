@@ -35,6 +35,9 @@ chroma_db/
 *.swp
 *.swo
 
+# Inputs
+pdfs/
+
 # Outputs
 logs/
 results/

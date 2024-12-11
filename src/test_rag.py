@@ -54,7 +54,21 @@ def test_patterns():
         # Test each pattern type
         pattern_tests = {
             'default_patterns': [
+                 # General Overview
+                "What are all the governing documents for condos?",
+                "What are reserve funds used for in condos?",
+                "What are the reserve fund requirements?",
+
+                # Financial Information
+                "What specific financial information and budget items are discussed across all the documents? Please cite each document separately.",
+                "Can you please provide a summary of the review of the unaudited financial statements in the meeting?",
+
+                # Governance
+                "What are the mandatory requirements versus optional guidelines for condo governance, distinguishing between requirements and recommendations.",
+
+                # Meeting Specific
                 "When did the meeting start and end?",
+                "Does the agenda match the topics discussed in the management report and minutes?",
                 "What were the action items from this meeting?",
                 "List all motions from the meeting.",
                 "Who attended the meeting?",
@@ -62,22 +76,16 @@ def test_patterns():
                 "What is the name or number of the corporation?",
             ],
             'custom_patterns': [
-                "When did the meeting start and end?",
-                "What were the action items from this meeting?",
-                "List all motions from the meeting.",
-                "Who attended the meeting?",
-                "Who is the manager of the corporation?",
-                "What is the name or number of the corporation?",
+                "Were there any contracts mentioned in the meeting?",
+                "Are there any owners in arrears currently?",
+                "What was the status of the reserve fund?",
+                "What was the status of building maintenance?",
             ],
             'test_patterns': [
-                "When did the meeting start and end?",
-                "What were the action items from this meeting?",
-                "List all motions from the meeting.",
-                "Who attended the meeting?",
-                "Who is the manager of the corporation?",
-                "What is the name or number of the corporation?",
+                "What was in the test section?",
+                "What dates were mentioned?",
             ]
-        }   
+        }
 
         # Store results
         detailed_results = {

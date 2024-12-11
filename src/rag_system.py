@@ -75,7 +75,11 @@ class DocumentStructure:
     
     # Default patterns for standard meeting minutes sections
     DEFAULT_PATTERNS = {
-        'action_items': r'(?:^|\n)ACTION:\s*(.*?)(?=\n\n|\Z)',
+        # action items
+        'action_items': r'(?:^|\n)ACTION\s*:\s*(.*?)(?=\n\n|\Z)',
+        'action_items_lower': r'(?:^|\n)action\s*:\s*(.*?)(?=\n\n|\Z)',
+        'action_items_variation': r'(?:^|\n)Action\s*Items?\s*:\s*(.*?)(?=\n\n|\Z)',
+    
         'new_business': r'(?:^|\n)NEW BUSINESS\s*(.*?)(?=\n\n|\Z)',
         'call_to_order': r'(?:^|\n)CALL TO ORDER\s*(.*?)(?=\n\n|\Z)',
         'correspondence': r'(?:^|\n)CORRESPONDENCE\s*(.*?)(?=\n\n|\Z)',
@@ -414,7 +418,6 @@ class RAGPrototype:
             self.documents = []
             self.structured_content = {}  # Reset structured content
             
-            processed_count = 0
             for filename in os.listdir(self.pdf_directory):
                 if filename.endswith('.pdf'):
                     file_path = os.path.join(self.pdf_directory, filename)
@@ -423,23 +426,19 @@ class RAGPrototype:
                         logger.info(f"Processing {filename}...")
                         docs = self.pdf_extractor.extract_from_pdf(file_path)
                         
-                        # Validate documents
+                        # Prioritize and extract important sections
                         for doc in docs:
-                            if not hasattr(doc, 'page_content'):
-                                logger.error(f"Invalid document from {filename}: missing page_content")
-                                continue
+                            important_sections = {}
+                            for section in ['action_items', 'motions', 'attendees']:
+                                content = self.doc_structure.extract_content(doc.page_content, pattern=section)
+                                if content:
+                                    important_sections[section] = content
                             
-                            if not doc.page_content.strip():
-                                logger.warning(f"Empty content in document from {filename}")
-                                continue
-                            
-                            # Add document type metadata
-                            doc_types = self.doc_classifier.classify_document(doc.page_content)
-                            doc.metadata['types'] = doc_types
+                            # Store extracted sections in metadata
+                            doc.metadata['important_sections'] = important_sections
                             
                             self.documents.append(doc)
-                            processed_count += 1
-                            
+                        
                         logger.info(f"Successfully processed {filename} - {len(docs)} documents extracted")
 
                     except Exception as e:
@@ -448,10 +447,8 @@ class RAGPrototype:
 
             if not self.documents:
                 raise ValueError("No documents were successfully processed")
-                
-            logger.info(f"Successfully processed {processed_count} documents from {len(os.listdir(self.pdf_directory))} files")
-
-            # Create vector store
+            
+            # Create vector store for efficient retrieval
             self._create_vectorstore()
 
         except Exception as e:
@@ -644,7 +641,7 @@ class RAGPrototype:
     def _create_qa_chain(self) -> RetrievalQA:
         """Create QA chain with custom prompt."""
         template = """
-        Answer the question based only on the provided context. If you cannot answer the question based on the context, say "I cannot answer this based on the provided documents."
+        Answer the question based only on the provided context. Use a conversational yet professional tone. Do not reference the document directly in your answer. If the user requests, offer to provide the document name (not the chunk ID). If you cannot answer the question based on the context, say "I cannot answer this based on the provided documents."
 
         Context: {context}
 
@@ -664,3 +661,17 @@ class RAGPrototype:
             retriever=self.vectorstore.as_retriever(),
             chain_type_kwargs={"prompt": prompt}
         )
+
+    def query_with_important_sections(self, question: str) -> str:
+        """Query the LLM using prioritized sections."""
+        context_parts = []
+        
+        for doc in self.documents:
+            important_sections = doc.metadata.get('important_sections', {})
+            for section, content in important_sections.items():
+                context_parts.append(f"{section.capitalize()}:\n{content}")
+        
+        context = "\n\n".join(context_parts)
+        response = self.llm.query(context, question)
+        
+        return response
